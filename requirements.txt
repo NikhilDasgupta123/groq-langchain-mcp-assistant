@@ -1,0 +1,7 @@
+langchain
+langchain-groq
+langchain-mcp-adapters
+mcp[cli]>=2.0.0
+fastapi[standard]
+python-dotenv
+jinja2
