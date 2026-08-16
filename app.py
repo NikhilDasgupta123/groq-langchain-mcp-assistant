@@ -1,10 +1,12 @@
+import uvicorn
+
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
-import uvicorn
 
-from llm import get_llm
-
+from api.router.health import router as health_router
+from api.router.llm import router as llm_router
+from api.router.chat import router as chat_router
 
 app = FastAPI(
     title="MCP AI Assistant",
@@ -13,16 +15,19 @@ app = FastAPI(
 )
 
 
-# HTML templates
 templates = Jinja2Templates(directory="templates")
 
 
-# Static files: CSS, JS, images
 app.mount(
     "/static",
     StaticFiles(directory="static"),
     name="static",
 )
+
+
+app.include_router(health_router)
+app.include_router(llm_router)
+app.include_router(chat_router)
 
 
 @app.get("/")
@@ -32,28 +37,6 @@ async def home(request: Request):
         name="index.html",
         context={}
     )
-
-
-@app.get("/health")
-async def health():
-    return {
-        "status": "healthy"
-    }
-
-
-@app.get("/test-llm")
-async def test_llm():
-    llm = get_llm()
-
-    response = llm.invoke(
-        "Reply only with: Groq LLM connection successful"
-    )
-
-    return {
-        "status": "success",
-        "model": "openai/gpt-oss-20b",
-        "response": response.content
-    }
 
 
 if __name__ == "__main__":
