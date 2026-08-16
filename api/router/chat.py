@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 
-from api.schema.chat import ChatRequest, ChatResponse
+from api.schema.chat import ChatData, ChatRequest, ChatResponse
 from llm import get_llm
+from prompt.loader import load_system_prompt
 
 
 router = APIRouter(
@@ -16,8 +17,13 @@ async def chat(request: ChatRequest):
     try:
         llm = get_llm()
 
+        system_prompt = load_system_prompt()
+
         response = await llm.ainvoke(
-            [HumanMessage(content=request.message)]
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=request.message),
+            ]
         )
 
         content = response.content
@@ -37,15 +43,16 @@ async def chat(request: ChatRequest):
             text = str(content).strip() if content else ""
 
         if not text:
-            print("Empty LLM response:", response)
-
             raise HTTPException(
                 status_code=502,
-                detail="Groq returned an empty LLM response.",
+                detail="LLM returned an empty response.",
             )
 
         return ChatResponse(
-            response=text
+            status="success",
+            data=ChatData(
+                answer=text
+            ),
         )
 
     except HTTPException:
@@ -56,5 +63,5 @@ async def chat(request: ChatRequest):
 
         raise HTTPException(
             status_code=500,
-            detail=str(e),
+            detail="Failed to generate response.",
         ) from e
