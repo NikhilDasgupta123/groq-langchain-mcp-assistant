@@ -3,6 +3,8 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+from llm import get_llm
+
 
 app = FastAPI(
     title="MCP AI Assistant",
@@ -36,6 +38,21 @@ async def home(request: Request):
 async def health():
     return {
         "status": "healthy"
+    }
+
+
+@app.get("/test-llm")
+async def test_llm():
+    llm = get_llm()
+
+    response = llm.invoke(
+        "Reply only with: Groq LLM connection successful"
+    )
+
+    return {
+        "status": "success",
+        "model": "openai/gpt-oss-20b",
+        "response": response.content
     }
 
 
