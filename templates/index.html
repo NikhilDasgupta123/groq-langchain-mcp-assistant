@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MCP AI Assistant - Groq, LangChain and Model Context Protocol playground">
+    <title>MCP AI Assistant</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <main class="app-shell">
+        <section class="chat-panel" aria-label="AI chatbot">
+            <header class="panel-header">
+                <div class="brand-block">
+                    <div class="brand-mark" aria-hidden="true">M</div>
+                    <div>
+                        <div class="eyebrow">MODEL CONTEXT PROTOCOL</div>
+                        <h1>MCP AI Assistant</h1>
+                    </div>
+                </div>
+
+                <div class="api-status" id="apiStatus" aria-live="polite">
+                    <span class="status-dot"></span>
+                    <span id="apiStatusText">Checking API</span>
+                </div>
+            </header>
+
+            <div class="chat-context">
+                <span class="context-chip">Groq</span>
+                <span class="context-chip">LangChain Agent</span>
+                <span class="context-chip">FastAPI</span>
+                <span class="context-chip live-chip" id="mcpContextChip">MCP tools: live</span>
+            </div>
+
+            <div class="messages" id="messages" aria-live="polite" aria-label="Conversation">
+                <article class="message assistant-message">
+                    <div class="message-avatar" aria-hidden="true">AI</div>
+                    <div class="message-body">
+                        <div class="message-label">Assistant</div>
+                        <div class="message-bubble">
+                            MCP is connected. Ask me to add two numbers to see a real MCP tool call.
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <div class="composer-wrap">
+                <div class="quick-actions" aria-label="Example prompts">
+                    <button type="button" class="quick-prompt" data-prompt="Use the MCP calculator tool to add 25 and 15.">Test MCP: 25 + 15</button>
+                    <button type="button" class="quick-prompt" data-prompt="Add 200 and 100 using the calculator tool.">Test MCP: 200 + 100</button>
+                    <button type="button" class="quick-prompt" data-prompt="Explain Model Context Protocol in one sentence.">Explain MCP</button>
+                </div>
+
+                <form class="composer" id="chatForm">
+                    <label for="messageInput" class="sr-only">Message</label>
+                    <textarea
+                        id="messageInput"
+                        name="message"
+                        rows="1"
+                        placeholder="Message MCP Assistant..."
+                        autocomplete="off"
+                        required
+                    ></textarea>
+                    <button type="submit" class="send-button" id="sendButton" aria-label="Send message">
+                        <span>Send</span>
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </form>
+                <p class="composer-note">Enter to send · Shift + Enter for a new line</p>
+            </div>
+        </section>
+
+        <section class="trace-panel" aria-label="Backend execution process">
+            <header class="trace-header">
+                <div>
+                    <div class="eyebrow">BACKEND OBSERVABILITY</div>
+                    <h2>Live MCP Connector</h2>
+                    <p>Animation while processing; final MCP state comes from the real backend trace.</p>
+                </div>
+                <div class="trace-state idle" id="traceState">
+                    <span class="trace-state-dot"></span>
+                    <span id="traceStateText">Idle</span>
+                </div>
+            </header>
+
+            <div class="trace-canvas" id="traceCanvas">
+                <div class="trace-grid" aria-hidden="true"></div>
+
+                <div class="pipeline-section">
+                    <div class="section-title-row">
+                        <span>Chat request path</span>
+                        <span class="section-state" id="requestDuration">Ready</span>
+                    </div>
+
+                    <div class="flow-node" data-stage="client">
+                        <div class="node-icon">01</div>
+                        <div class="node-content">
+                            <strong>Browser Client</strong>
+                            <span>POST /chat</span>
+                        </div>
+                        <span class="node-status">Ready</span>
+                    </div>
+                    <div class="flow-edge"><span class="edge-pulse"></span></div>
+
+                    <div class="flow-node" data-stage="api">
+                        <div class="node-icon">02</div>
+                        <div class="node-content">
+                            <strong>FastAPI Router</strong>
+                            <span>api/router/chat.py</span>
+                        </div>
+                        <span class="node-status">Ready</span>
+                    </div>
+                    <div class="flow-edge"><span class="edge-pulse"></span></div>
+
+                    <div class="flow-node" data-stage="prompt">
+                        <div class="node-icon">03</div>
+                        <div class="node-content">
+                            <strong>Prompt Loader</strong>
+                            <span>prompt/system.yml</span>
+                        </div>
+                        <span class="node-status">Ready</span>
+                    </div>
+                    <div class="flow-edge"><span class="edge-pulse"></span></div>
+
+                    <div class="flow-node" data-stage="mcp-client">
+                        <div class="node-icon">04</div>
+                        <div class="node-content">
+                            <strong>MCP Client</strong>
+                            <span>Discover tools over stdio</span>
+                        </div>
+                        <span class="node-status">Ready</span>
+                    </div>
+                    <div class="flow-edge"><span class="edge-pulse"></span></div>
+
+                    <div class="flow-node" data-stage="agent">
+                        <div class="node-icon">05</div>
+                        <div class="node-content">
+                            <strong>LangChain Agent → Groq</strong>
+                            <span>Tool decision + final response</span>
+                        </div>
+                        <span class="node-status">Ready</span>
+                    </div>
+                </div>
+
+                <div class="connector-divider">
+                    <span></span>
+                    <strong>MCP execution</strong>
+                    <span></span>
+                </div>
+
+                <div class="mcp-zone">
+                    <div class="mcp-node" id="mcpServerNode">
+                        <div class="mcp-orbit" aria-hidden="true">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <div class="mcp-copy">
+                            <div class="mcp-title-row">
+                                <strong>MCP Server</strong>
+                                <span class="standby-badge" id="mcpServerBadge">Ready</span>
+                            </div>
+                            <p>stdio transport · FastMCP</p>
+                        </div>
+                    </div>
+
+                    <div class="tool-row" id="calculatorToolRow">
+                        <div class="tool-icon" aria-hidden="true">ƒ</div>
+                        <div>
+                            <strong>add_numbers</strong>
+                            <span id="toolDescription">Waiting for an agent tool call</span>
+                        </div>
+                        <span class="tool-state" id="toolState">Ready</span>
+                    </div>
+
+                    <div class="tool-payload" id="toolPayload" hidden>
+                        <div>
+                            <span>Arguments</span>
+                            <code id="toolArguments">—</code>
+                        </div>
+                        <div>
+                            <span>Result</span>
+                            <code id="toolResult">—</code>
+                        </div>
+                    </div>
+
+                    <div class="mcp-note">
+                        <div class="note-icon">i</div>
+                        <p id="mcpNote">
+                            <strong>Real backend:</strong> <code>/chat</code> loads MCP tools through
+                            <code>MultiServerMCPClient</code>. A tool is marked Executed only when the
+                            backend returns a real LangChain ToolMessage.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <footer class="trace-footer">
+                <div>
+                    <span class="footer-label">Last event</span>
+                    <strong id="lastEvent">Waiting for a request</strong>
+                </div>
+                <div>
+                    <span class="footer-label">Request</span>
+                    <strong id="requestId">—</strong>
+                </div>
+            </footer>
+        </section>
+    </main>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

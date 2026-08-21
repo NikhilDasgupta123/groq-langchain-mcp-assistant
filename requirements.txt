@@ -1,8 +1,10 @@
-langchain
+langchain>=1.0.0
 langchain-groq
-langchain-mcp-adapters
-mcp[cli]>=2.0.0
+langchain-mcp-adapters==0.3.1
+mcp[cli]>=1.28.0,<2.0.0
+
 fastapi[standard]
 python-dotenv
 jinja2
 PyYAML
+selenium
