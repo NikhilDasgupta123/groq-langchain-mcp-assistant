@@ -7,4 +7,5 @@ fastapi[standard]
 python-dotenv
 jinja2
 PyYAML
-selenium
+
+playwright

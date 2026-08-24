@@ -2,320 +2,252 @@ const chatForm = document.getElementById("chatForm");
 const messageInput = document.getElementById("messageInput");
 const sendButton = document.getElementById("sendButton");
 const messages = document.getElementById("messages");
+
 const apiStatus = document.getElementById("apiStatus");
 const apiStatusText = document.getElementById("apiStatusText");
-const traceCanvas = document.getElementById("traceCanvas");
-const traceState = document.getElementById("traceState");
-const traceStateText = document.getElementById("traceStateText");
-const lastEvent = document.getElementById("lastEvent");
-const requestId = document.getElementById("requestId");
-const requestDuration = document.getElementById("requestDuration");
-const quickPrompts = document.querySelectorAll(".quick-prompt");
-const stages = [...document.querySelectorAll(".flow-node")];
 
-const mcpServerNode = document.getElementById("mcpServerNode");
-const mcpServerBadge = document.getElementById("mcpServerBadge");
-const calculatorToolRow = document.getElementById("calculatorToolRow");
-const toolDescription = document.getElementById("toolDescription");
-const toolState = document.getElementById("toolState");
-const toolPayload = document.getElementById("toolPayload");
-const toolArguments = document.getElementById("toolArguments");
-const toolResult = document.getElementById("toolResult");
-const mcpNote = document.getElementById("mcpNote");
-const mcpContextChip = document.getElementById("mcpContextChip");
+const executionState = document.getElementById("executionState");
+const addressBar = document.getElementById("addressBar");
+const browserPreview = document.getElementById("browserPreview");
+const browserPlaceholder = document.getElementById("browserPlaceholder");
+const browserWorking = document.getElementById("browserWorking");
+const refreshPreview = document.getElementById("refreshPreview");
 
-let isSubmitting = false;
-let stageTimer = null;
+const traceSummary = document.getElementById("traceSummary");
+const duration = document.getElementById("duration");
+const toolLog = document.getElementById("toolLog");
 
-function makeRequestId() {
-    return `req_${Date.now().toString(36).slice(-6)}`;
+let isSending = false;
+let previewPoll = null;
+
+function setApiStatus(online) {
+    apiStatus.classList.toggle("online", online);
+    apiStatus.classList.toggle("offline", !online);
+    apiStatusText.textContent = online ? "API Online" : "API Offline";
 }
 
-function setApiStatus(state, text) {
-    apiStatus.classList.remove("online", "offline");
-    if (state) apiStatus.classList.add(state);
-    apiStatusText.textContent = text;
-}
-
-async function checkHealth() {
+async function healthCheck() {
     try {
-        const response = await fetch("/health", { method: "GET" });
-        if (!response.ok) throw new Error("Health check failed");
-        setApiStatus("online", "API Online");
-    } catch (error) {
-        setApiStatus("offline", "API Offline");
+        const response = await fetch("/health", { cache: "no-store" });
+        setApiStatus(response.ok);
+    } catch {
+        setApiStatus(false);
     }
 }
 
-function appendMessage(role, text, options = {}) {
+function resizeInput() {
+    messageInput.style.height = "auto";
+    messageInput.style.height = `${Math.min(messageInput.scrollHeight, 120)}px`;
+}
+
+function addMessage(role, text, options = {}) {
     const article = document.createElement("article");
-    article.className = `message ${role === "user" ? "user-message" : "assistant-message"}`;
-    if (options.error) article.classList.add("error-message");
-    if (options.id) article.id = options.id;
+    article.className = `message ${role}`;
+    if (options.error) article.classList.add("error");
 
     const avatar = document.createElement("div");
-    avatar.className = `message-avatar${role === "user" ? " user-avatar" : ""}`;
-    avatar.setAttribute("aria-hidden", "true");
+    avatar.className = "avatar";
     avatar.textContent = role === "user" ? "YOU" : "AI";
 
     const body = document.createElement("div");
-    body.className = "message-body";
 
-    const label = document.createElement("div");
-    label.className = "message-label";
+    const label = document.createElement("small");
     label.textContent = role === "user" ? "You" : "Assistant";
 
     const bubble = document.createElement("div");
-    bubble.className = "message-bubble";
+    bubble.className = "bubble";
 
     if (options.typing) {
-        bubble.classList.add("typing-bubble");
-        bubble.setAttribute("aria-label", "Assistant is typing");
+        const typing = document.createElement("div");
+        typing.className = "typing";
+
         for (let i = 0; i < 3; i += 1) {
-            bubble.appendChild(document.createElement("span"));
+            typing.appendChild(document.createElement("i"));
         }
+
+        bubble.appendChild(typing);
     } else {
         bubble.textContent = text;
     }
 
     body.append(label, bubble);
-
-    if (role === "user") {
-        article.append(body, avatar);
-    } else {
-        article.append(avatar, body);
-    }
-
+    article.append(avatar, body);
     messages.appendChild(article);
     messages.scrollTop = messages.scrollHeight;
+
     return article;
 }
 
-function resetMcpState() {
-    mcpServerNode.classList.remove("connecting", "connected", "executed", "error");
-    mcpServerBadge.classList.remove("connecting", "connected", "executed", "error");
-    calculatorToolRow.classList.remove("executed", "not-used");
 
-    mcpServerBadge.textContent = "Ready";
-    toolState.textContent = "Ready";
-    toolDescription.textContent = "Waiting for an agent tool call";
-
-    toolPayload.hidden = true;
-    toolArguments.textContent = "—";
-    toolResult.textContent = "—";
+function clearBrowserPreview() {
+    browserPreview.removeAttribute("src");
+    browserPreview.hidden = true;
+    browserPlaceholder.hidden = false;
+    addressBar.textContent = "No page open";
 }
 
-function setMcpConnecting() {
-    resetMcpState();
+function refreshBrowserPreview() {
+    const probe = new Image();
 
-    mcpServerNode.classList.add("connecting");
-    mcpServerBadge.classList.add("connecting");
-    mcpServerBadge.textContent = "Connecting";
+    probe.onload = () => {
+        browserPreview.src = probe.src;
+        browserPreview.hidden = false;
+        browserPlaceholder.hidden = true;
+    };
 
-    toolState.textContent = "Discovering";
-    toolDescription.textContent = "LangChain MCP adapter is loading tools";
+    probe.onerror = () => {
+        // The first browser screenshot may not exist yet.
+    };
+
+    probe.src = `/static/browser/latest.png?t=${Date.now()}`;
 }
 
-function applyMcpTrace(trace) {
-    const connected = Boolean(trace?.connected);
-    const toolUsed = Boolean(trace?.tool_used);
-    const availableTools = Array.isArray(trace?.available_tools)
-        ? trace.available_tools
-        : [];
-    const toolCalls = Array.isArray(trace?.tool_calls)
-        ? trace.tool_calls
-        : [];
+function startPreviewPolling() {
+    stopPreviewPolling();
+    browserWorking.hidden = false;
 
-    mcpServerNode.classList.remove("connecting", "connected", "executed", "error");
-    mcpServerBadge.classList.remove("connecting", "connected", "executed", "error");
+    // Polling lets the UI show intermediate Selenium screenshots while one
+    // multi-tool MCP request is still running.
+    previewPoll = window.setInterval(refreshBrowserPreview, 450);
+}
 
-    if (!connected) {
-        mcpServerNode.classList.add("error");
-        mcpServerBadge.classList.add("error");
-        mcpServerBadge.textContent = "Failed";
-        toolState.textContent = "Unavailable";
-        toolDescription.textContent = "Backend did not establish an MCP connection";
-        mcpContextChip.textContent = "MCP tools: unavailable";
-        lastEvent.textContent = "MCP connection failed";
+function stopPreviewPolling() {
+    if (previewPoll) {
+        clearInterval(previewPoll);
+        previewPoll = null;
+    }
+
+    browserWorking.hidden = true;
+}
+
+function parseToolResult(result) {
+    if (typeof result !== "string") {
+        return result && typeof result === "object" ? result : {};
+    }
+
+    try {
+        return JSON.parse(result);
+    } catch {
+        return {};
+    }
+}
+
+function updateBrowserFromTrace(trace) {
+    const calls = Array.isArray(trace?.tool_calls) ? trace.tool_calls : [];
+
+    const closeSessionCall = calls.find(
+        (call) => call?.name === "browser_close_session"
+    );
+
+    if (closeSessionCall) {
+        clearBrowserPreview();
         return;
     }
 
-    mcpServerNode.classList.add(toolUsed ? "executed" : "connected");
-    mcpServerBadge.classList.add(toolUsed ? "executed" : "connected");
-    mcpServerBadge.textContent = toolUsed ? "Executed" : "Connected";
-    mcpContextChip.textContent = "MCP tools: connected";
+    const browserCalls = calls.filter((call) =>
+        String(call?.name || "").startsWith("browser_")
+    );
 
-    const hasCalculator = availableTools.includes("add_numbers");
-
-    if (!toolUsed) {
-        calculatorToolRow.classList.add("not-used");
-        toolState.textContent = hasCalculator ? "Available" : "Not found";
-        toolDescription.textContent = hasCalculator
-            ? "Tool discovered; agent did not need it for this request"
-            : "add_numbers was not returned by the MCP server";
-        toolPayload.hidden = true;
-        mcpNote.innerHTML =
-            "<strong>Backend trace:</strong> MCP tool discovery succeeded, but the agent answered without executing a tool.";
-        lastEvent.textContent = "Agent completed without an MCP tool call";
+    if (browserCalls.length === 0) {
         return;
     }
 
-    const call =
-        toolCalls.find((item) => item?.name === "add_numbers") ||
-        toolCalls[0];
+    for (let index = browserCalls.length - 1; index >= 0; index -= 1) {
+        const parsed = parseToolResult(browserCalls[index]?.result);
 
-    calculatorToolRow.classList.add("executed");
-    toolState.textContent = "Executed";
-    toolDescription.textContent = `Real MCP tool call: ${call?.name || "tool"}`;
+        if (parsed?.url && parsed.url !== "about:blank") {
+            addressBar.textContent = parsed.url;
+            break;
+        }
 
-    toolArguments.textContent = JSON.stringify(call?.arguments || {});
-    toolResult.textContent =
-        call?.result === null || call?.result === undefined
-            ? "No result returned"
-            : String(call.result);
-
-    toolPayload.hidden = false;
-
-    mcpNote.innerHTML =
-        "<strong>Verified:</strong> the backend returned a real LangChain tool call/result from the MCP server.";
-    lastEvent.textContent = `${call?.name || "MCP tool"} executed and result returned to the agent`;
-}
-
-function resetTrace() {
-    clearInterval(stageTimer);
-    stageTimer = null;
-    traceCanvas.classList.remove("processing");
-
-    stages.forEach((stage) => {
-        stage.classList.remove("active", "complete", "error");
-        stage.querySelector(".node-status").textContent = "Ready";
-    });
-
-    resetMcpState();
-}
-
-function setTraceState(state, text) {
-    traceState.classList.remove("idle", "processing", "complete", "error");
-    traceState.classList.add(state);
-    traceStateText.textContent = text;
-}
-
-function startTrace(id) {
-    resetTrace();
-    traceCanvas.classList.add("processing");
-    setTraceState("processing", "Processing");
-    requestId.textContent = id;
-    requestDuration.textContent = "In progress";
-    lastEvent.textContent = "Request sent to POST /chat";
-
-    let index = 0;
-
-    const stageMessages = [
-        "Browser sent the chat request",
-        "FastAPI is handling the request",
-        "System prompt is being loaded",
-        "MCP client is discovering tools over stdio",
-        "LangChain agent is deciding whether to call a tool",
-    ];
-
-    function activateStage(nextIndex) {
-        stages.forEach((stage, i) => {
-            stage.classList.remove("active");
-            if (i < nextIndex) {
-                stage.classList.add("complete");
-                stage.querySelector(".node-status").textContent = "Passed";
-            }
-        });
-
-        const current = stages[nextIndex];
-        if (!current) return;
-
-        current.classList.add("active");
-        current.querySelector(".node-status").textContent = "Active";
-        lastEvent.textContent = stageMessages[nextIndex];
-
-        if (current.dataset.stage === "mcp-client") {
-            setMcpConnecting();
+        if (parsed?.url === "about:blank") {
+            addressBar.textContent = "No page open";
         }
     }
 
-    activateStage(0);
-
-    stageTimer = setInterval(() => {
-        if (index < stages.length - 1) {
-            index += 1;
-            activateStage(index);
-        } else {
-            clearInterval(stageTimer);
-            stageTimer = null;
-        }
-    }, 520);
+    refreshBrowserPreview();
 }
 
-function completeTrace(startedAt, mcpTrace) {
-    clearInterval(stageTimer);
-    stageTimer = null;
-    traceCanvas.classList.remove("processing");
+function renderToolTrace(trace) {
+    const calls = Array.isArray(trace?.tool_calls) ? trace.tool_calls : [];
 
-    stages.forEach((stage) => {
-        stage.classList.remove("active", "error");
-        stage.classList.add("complete");
-        stage.querySelector(".node-status").textContent = "Done";
-    });
+    toolLog.innerHTML = "";
 
-    const elapsed = Math.max(1, Date.now() - startedAt);
-    requestDuration.textContent = `${elapsed} ms`;
-
-    applyMcpTrace(mcpTrace);
-    setTraceState("complete", mcpTrace?.tool_used ? "MCP Executed" : "Complete");
-}
-
-function failTrace(startedAt, message) {
-    clearInterval(stageTimer);
-    stageTimer = null;
-    traceCanvas.classList.remove("processing");
-
-    const active = stages.find((stage) => stage.classList.contains("active"));
-    if (active) {
-        active.classList.remove("active");
-        active.classList.add("error");
-        active.querySelector(".node-status").textContent = "Error";
+    if (calls.length === 0) {
+        toolLog.innerHTML =
+            '<div class="empty-log">MCP connected, but no tool was needed for this request.</div>';
+        traceSummary.textContent = "MCP connected · no tool executed";
+        return;
     }
 
-    mcpServerNode.classList.remove("connecting", "connected", "executed");
-    mcpServerNode.classList.add("error");
-    mcpServerBadge.classList.remove("connecting", "connected", "executed");
-    mcpServerBadge.classList.add("error");
-    mcpServerBadge.textContent = "Error";
+    traceSummary.textContent = `${calls.length} real MCP tool call${calls.length === 1 ? "" : "s"} executed`;
 
-    requestDuration.textContent = `${Math.max(1, Date.now() - startedAt)} ms`;
-    lastEvent.textContent = message;
-    setTraceState("error", "Failed");
+    calls.forEach((call, index) => {
+        const row = document.createElement("div");
+        row.className = "tool-event";
+
+        const number = document.createElement("div");
+        number.className = "tool-number";
+        number.textContent = String(index + 1).padStart(2, "0");
+
+        const main = document.createElement("div");
+        main.className = "tool-main";
+
+        const name = document.createElement("strong");
+        name.textContent = call?.name || "unknown_tool";
+
+        const args = document.createElement("code");
+        args.textContent = `args: ${JSON.stringify(call?.arguments || {})}`;
+
+        const result = document.createElement("code");
+        const resultText =
+            call?.result === null || call?.result === undefined
+                ? "—"
+                : String(call.result);
+
+        result.textContent =
+            resultText.length > 450
+                ? `result: ${resultText.slice(0, 450)}…`
+                : `result: ${resultText}`;
+
+        main.append(name, args, result);
+
+        const badge = document.createElement("span");
+        badge.className = "tool-badge";
+        badge.textContent = "Executed";
+
+        row.append(number, main, badge);
+        toolLog.appendChild(row);
+    });
 }
 
-function resizeTextarea() {
-    messageInput.style.height = "auto";
-    messageInput.style.height = `${Math.min(messageInput.scrollHeight, 140)}px`;
+function setProcessingState(active) {
+    executionState.classList.toggle("active", active);
+    executionState.textContent = active ? "MCP Running" : "Complete";
+    browserWorking.hidden = !active;
 }
 
-async function submitMessage(message) {
-    const cleanMessage = message.trim();
-    if (!cleanMessage || isSubmitting) return;
+async function sendMessage(rawMessage) {
+    const message = rawMessage.trim();
 
-    isSubmitting = true;
+    if (!message || isSending) return;
+
+    isSending = true;
     sendButton.disabled = true;
     messageInput.disabled = true;
 
-    appendMessage("user", cleanMessage);
-    const typing = appendMessage("assistant", "", {
-        typing: true,
-        id: "typingMessage",
-    });
+    addMessage("user", message);
+    const typing = addMessage("assistant", "", { typing: true });
 
-    const id = makeRequestId();
-    const startedAt = Date.now();
+    toolLog.innerHTML =
+        '<div class="empty-log">Waiting for backend MCP trace…</div>';
 
-    startTrace(id);
+    traceSummary.textContent = "Processing request";
+    duration.textContent = "Running";
+    setProcessingState(true);
+    startPreviewPolling();
+
+    const startedAt = performance.now();
 
     try {
         const response = await fetch("/chat", {
@@ -324,81 +256,87 @@ async function submitMessage(message) {
                 "Content-Type": "application/json",
             },
             body: JSON.stringify({
-                message: cleanMessage,
+                message,
             }),
         });
 
         const payload = await response.json().catch(() => ({}));
 
         if (!response.ok) {
-            const detail =
-                payload.detail ||
-                `Request failed with status ${response.status}`;
-            throw new Error(detail);
+            throw new Error(
+                payload?.detail || `Request failed (${response.status})`
+            );
         }
 
         const answer = payload?.data?.answer;
-        const mcpTrace = payload?.data?.mcp;
+        const trace = payload?.data?.mcp;
 
         if (!answer) {
-            throw new Error("Backend returned an empty chat response.");
-        }
-
-        if (!mcpTrace) {
-            throw new Error("Backend response is missing the MCP execution trace.");
+            throw new Error("Backend returned an empty answer.");
         }
 
         typing.remove();
-        appendMessage("assistant", answer);
+        addMessage("assistant", answer);
 
-        completeTrace(startedAt, mcpTrace);
-        setApiStatus("online", "API Online");
+        renderToolTrace(trace);
+        updateBrowserFromTrace(trace);
+
+        const elapsed = Math.round(performance.now() - startedAt);
+        duration.textContent = `${elapsed} ms`;
+        executionState.textContent = trace?.tool_used
+            ? "MCP Executed"
+            : "Complete";
+
+        setApiStatus(true);
     } catch (error) {
         typing.remove();
 
-        appendMessage(
+        addMessage(
             "assistant",
-            error.message || "Unable to get a response.",
-            { error: true },
+            error?.message || "The request failed.",
+            { error: true }
         );
 
-        failTrace(
-            startedAt,
-            error.message || "Chat request failed",
-        );
-
-        await checkHealth();
+        traceSummary.textContent = "Request failed";
+        duration.textContent = `${Math.round(performance.now() - startedAt)} ms`;
+        executionState.textContent = "Error";
+        await healthCheck();
     } finally {
-        isSubmitting = false;
+        stopPreviewPolling();
+
+        isSending = false;
         sendButton.disabled = false;
         messageInput.disabled = false;
         messageInput.value = "";
-        resizeTextarea();
+        resizeInput();
         messageInput.focus();
     }
 }
 
 chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
-    submitMessage(messageInput.value);
+    sendMessage(messageInput.value);
 });
 
-messageInput.addEventListener("input", resizeTextarea);
+messageInput.addEventListener("input", resizeInput);
 
 messageInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
-        submitMessage(messageInput.value);
+        sendMessage(messageInput.value);
     }
 });
 
-quickPrompts.forEach((button) => {
+document.querySelectorAll("[data-prompt]").forEach((button) => {
     button.addEventListener("click", () => {
         messageInput.value = button.dataset.prompt || "";
-        resizeTextarea();
+        resizeInput();
         messageInput.focus();
     });
 });
 
-checkHealth();
+refreshPreview.addEventListener("click", refreshBrowserPreview);
+
+healthCheck();
+refreshBrowserPreview();
 messageInput.focus();
