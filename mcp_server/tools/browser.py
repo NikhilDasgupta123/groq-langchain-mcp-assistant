@@ -702,6 +702,36 @@ def register_browser_tools(mcp):
 
 
     @mcp.tool()
+    async def browser_reload() -> dict:
+        """
+        Reload the currently open Playwright page.
+
+        This refreshes the current website without closing the persistent
+        browser session or navigating to a different domain.
+        """
+        page = await _get_page()
+
+        if page.url == "about:blank":
+            return {
+                "status": "no_page",
+                **await _page_state(page),
+            }
+
+        await page.reload(
+            wait_until="domcontentloaded",
+            timeout=20000,
+        )
+
+        page = await _refresh_active_page(page)
+
+        return {
+            "status": "reloaded",
+            **await _page_state(page),
+        }
+
+
+
+    @mcp.tool()
     async def browser_screenshot() -> dict:
         """Capture the current browser viewport."""
         page = await _get_page()

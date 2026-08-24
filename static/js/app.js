@@ -106,9 +106,14 @@ function startPreviewPolling() {
     stopPreviewPolling();
     browserWorking.hidden = false;
 
-    // Polling lets the UI show intermediate Selenium screenshots while one
-    // multi-tool MCP request is still running.
-    previewPoll = window.setInterval(refreshBrowserPreview, 450);
+    // Refresh immediately when a new chat request starts, then keep
+    // updating the Live Browser while Playwright/MCP is working.
+    refreshBrowserPreview();
+
+    previewPoll = window.setInterval(
+        refreshBrowserPreview,
+        500
+    );
 }
 
 function stopPreviewPolling() {
@@ -221,6 +226,82 @@ function renderToolTrace(trace) {
     });
 }
 
+
+function resetChatUi() {
+    messages.innerHTML = "";
+
+    addMessage(
+        "assistant",
+        "Playwright MCP is ready. Ask me to open a website, search, click, or type."
+    );
+
+    toolLog.innerHTML =
+        '<div class="empty-log">No tools executed yet.</div>';
+
+    traceSummary.textContent = "Waiting for MCP execution";
+    duration.textContent = "—";
+
+    executionState.classList.remove("active");
+    executionState.textContent = "Ready";
+
+    messageInput.value = "";
+    resizeInput();
+}
+
+async function refreshBrowserAndChat() {
+    if (isSending) return;
+
+    refreshPreview.disabled = true;
+    browserWorking.hidden = false;
+    executionState.classList.add("active");
+    executionState.textContent = "Refreshing";
+    traceSummary.textContent = "Refreshing Playwright page and chatbot memory";
+
+    try {
+        const response = await fetch("/chat/refresh", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+        });
+
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            throw new Error(
+                payload?.detail || `Refresh failed (${response.status})`
+            );
+        }
+
+        resetChatUi();
+
+        // The MCP browser_reload tool has already saved a fresh screenshot.
+        refreshBrowserPreview();
+
+        // Refresh once more shortly after to avoid any browser-cache timing.
+        window.setTimeout(
+            refreshBrowserPreview,
+            250
+        );
+
+        traceSummary.textContent = "Browser reloaded · chatbot memory cleared";
+        executionState.textContent = "Ready";
+        setApiStatus(true);
+
+    } catch (error) {
+        traceSummary.textContent =
+            error?.message || "Refresh failed";
+        executionState.textContent = "Error";
+        await healthCheck();
+
+    } finally {
+        browserWorking.hidden = true;
+        executionState.classList.remove("active");
+        refreshPreview.disabled = false;
+        messageInput.focus();
+    }
+}
+
 function setProcessingState(active) {
     executionState.classList.toggle("active", active);
     executionState.textContent = active ? "MCP Running" : "Complete";
@@ -302,6 +383,9 @@ async function sendMessage(rawMessage) {
         executionState.textContent = "Error";
         await healthCheck();
     } finally {
+        // One final refresh captures the last Playwright state before
+        // request-time auto refresh stops.
+        refreshBrowserPreview();
         stopPreviewPolling();
 
         isSending = false;
@@ -335,7 +419,7 @@ document.querySelectorAll("[data-prompt]").forEach((button) => {
     });
 });
 
-refreshPreview.addEventListener("click", refreshBrowserPreview);
+refreshPreview.addEventListener("click", refreshBrowserAndChat);
 
 healthCheck();
 refreshBrowserPreview();

@@ -222,6 +222,41 @@ def _extract_tool_trace(
     return ordered_calls
 
 
+async def refresh_browser_and_reset_chat() -> dict[str, Any]:
+    """
+    Reload the current Playwright page and clear LangChain conversation memory.
+
+    The persistent MCP/Playwright session remains alive; only the page is
+    reloaded and chatbot memory is reset.
+    """
+    await start_mcp_runtime()
+
+    async with _request_lock:
+        reload_tool = next(
+            (
+                tool
+                for tool in _tools
+                if tool.name == "browser_reload"
+            ),
+            None,
+        )
+
+        if reload_tool is None:
+            raise RuntimeError(
+                "browser_reload MCP tool is not available."
+            )
+
+        result = await reload_tool.ainvoke({})
+
+        _conversation_history.clear()
+
+        return {
+            "status": "refreshed",
+            "browser_result": _content_to_text(result),
+            "chat_memory_cleared": True,
+        }
+
+
 async def run_mcp_agent(
     user_message: str,
     system_prompt: str,

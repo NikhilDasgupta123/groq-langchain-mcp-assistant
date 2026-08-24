@@ -2,3 +2,6 @@
 .vscode
 *.pyc
 zip.md
+*.png
+*.jpg
+*.jpeg
